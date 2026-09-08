@@ -41,8 +41,8 @@
       }
     },
     "openConnect": {
-      "combined": "代理 + 校园 VPN",
-      "connected": "{{name}} 已连接，Mihomo TUN 已开启",
+      "title": "校园 VPN",
+      "connected": "{{name}} 已连接，校园网流量已分流",
       "ready": "{{name}} 已就绪",
       "notConfigured": "配置本地 OpenConnect 隧道",
       "settingsTitle": "OpenConnect 隧道",

@@ -46,7 +46,7 @@ export const translationKeys = [
   'home.components.proxyTun.status.tunModeDisabled',
   'home.components.proxyTun.tooltips.systemProxy',
   'home.components.proxyTun.tooltips.tunMode',
-  'home.components.openConnect.combined',
+  'home.components.openConnect.title',
   'home.components.openConnect.connected',
   'home.components.openConnect.ready',
   'home.components.openConnect.notConfigured',

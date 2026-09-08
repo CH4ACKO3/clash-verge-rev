@@ -108,7 +108,6 @@ export interface TranslationResources {
           title: string
         }
         openConnect: {
-          combined: string
           connected: string
           credentialStoreMissing: string
           detected: string
@@ -139,6 +138,7 @@ export interface TranslationResources {
           ready: string
           rescan: string
           settingsTitle: string
+          title: string
         }
         proxyTun: {
           status: {

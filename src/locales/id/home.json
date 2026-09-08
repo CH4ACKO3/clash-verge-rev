@@ -41,8 +41,8 @@
       }
     },
     "openConnect": {
-      "combined": "Proxy + campus VPN",
-      "connected": "{{name}} connected; Mihomo TUN enabled",
+      "title": "Campus VPN",
+      "connected": "{{name}} connected; campus traffic is routed through the VPN",
       "ready": "{{name}} ready",
       "notConfigured": "Configure a local OpenConnect tunnel",
       "settingsTitle": "OpenConnect tunnel",

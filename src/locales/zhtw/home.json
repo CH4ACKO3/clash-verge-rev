@@ -41,8 +41,8 @@
       }
     },
     "openConnect": {
-      "combined": "代理 + 校園 VPN",
-      "connected": "{{name}} connected; Mihomo TUN enabled",
+      "title": "校園 VPN",
+      "connected": "{{name}} 已連線，校園網流量已分流",
       "ready": "{{name}} ready",
       "notConfigured": "Configure a local OpenConnect tunnel",
       "settingsTitle": "OpenConnect tunnel",

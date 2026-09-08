@@ -5,6 +5,7 @@ import {
   RouterOutlined,
   SettingsOutlined,
   SpeedOutlined,
+  VpnLockRounded,
 } from '@mui/icons-material'
 import {
   Box,
@@ -31,6 +32,7 @@ import { CurrentProxyCard } from '@/components/home/current-proxy-card'
 import { EnhancedCard } from '@/components/home/enhanced-card'
 import { EnhancedTrafficStats } from '@/components/home/enhanced-traffic-stats'
 import { HomeProfileCard } from '@/components/home/home-profile-card'
+import { OpenConnectControl } from '@/components/home/openconnect-control'
 import { ProxyTunCard } from '@/components/home/proxy-tun-card'
 import { useProfiles } from '@/hooks/use-profiles'
 import { useVerge } from '@/hooks/use-verge'
@@ -72,6 +74,7 @@ export const preloadHomePageCards = () =>
 
 // 定义首页卡片设置接口
 interface HomeCardsSettings {
+  campusVpn: boolean
   profile: boolean
   proxy: boolean
   network: boolean
@@ -86,6 +89,7 @@ interface HomeCardsSettings {
 }
 
 const DEFAULT_HOME_CARDS: HomeCardsSettings = {
+  campusVpn: true,
   info: false,
   profile: true,
   proxy: true,
@@ -136,6 +140,15 @@ const HomeSettingsDialog = ({
       <DialogTitle>{t('home.page.settings.title')}</DialogTitle>
       <DialogContent>
         <FormGroup>
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={cards.campusVpn || false}
+                onChange={() => handleToggle('campusVpn')}
+              />
+            }
+            label={t('home.components.openConnect.title')}
+          />
           <FormControlLabel
             control={
               <Checkbox
@@ -238,8 +251,14 @@ const HomePage = () => {
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   // 卡片显示状态
-  const homeCards =
-    (verge?.home_cards as HomeCardsSettings | undefined) ?? DEFAULT_HOME_CARDS
+  const homeCards = useMemo<HomeCardsSettings>(
+    () =>
+      ({
+        ...DEFAULT_HOME_CARDS,
+        ...verge?.home_cards,
+      }) as HomeCardsSettings,
+    [verge?.home_cards],
+  )
 
   // 文档链接函数
   const toGithubDoc = useLockFn(() =>
@@ -269,6 +288,17 @@ const HomePage = () => {
   const criticalCards = useMemo(
     () => [
       renderCard(
+        'campusVpn',
+        <EnhancedCard
+          title={t('home.components.openConnect.title')}
+          icon={<VpnLockRounded />}
+          iconColor="success"
+        >
+          <OpenConnectControl />
+        </EnhancedCard>,
+        12,
+      ),
+      renderCard(
         'profile',
         <HomeProfileCard current={current} onProfileUpdated={mutateProfiles} />,
       ),
@@ -276,7 +306,7 @@ const HomePage = () => {
       renderCard('network', <NetworkSettingsCard />),
       renderCard('mode', <ClashModeEnhancedCard />),
     ],
-    [current, mutateProfiles, renderCard],
+    [current, mutateProfiles, renderCard, t],
   )
 
   const nonCriticalCards = useMemo(

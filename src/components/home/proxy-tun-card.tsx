@@ -17,7 +17,6 @@ import {
 import { useState, useMemo, memo, FC } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { OpenConnectControl } from '@/components/home/openconnect-control'
 import ProxyControlSwitches from '@/components/shared/proxy-control-switches'
 import { useSystemProxyState } from '@/hooks/use-system-proxy-state'
 import { useSystemState } from '@/hooks/use-system-state'
@@ -239,7 +238,6 @@ export const ProxyTunCard: FC = () => {
           }
           noRightPadding={true}
         />
-        <OpenConnectControl />
       </Box>
     </Box>
   )

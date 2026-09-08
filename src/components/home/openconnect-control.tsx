@@ -7,7 +7,6 @@ import {
   Alert,
   Box,
   Button,
-  Divider,
   IconButton,
   Stack,
   Switch,
@@ -18,7 +17,6 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { BaseDialog } from '@/components/base'
-import { useVerge } from '@/hooks/use-verge'
 import {
   discoverOpenConnect,
   getOpenConnectSettings,
@@ -53,7 +51,6 @@ const parseList = (value: string) =>
 
 export const OpenConnectControl = () => {
   const { t } = useTranslation()
-  const { verge, patchVerge } = useVerge()
   const [settings, setSettings] = useState(EMPTY_SETTINGS)
   const [password, setPassword] = useState('')
   const [status, setStatus] = useState<IOpenConnectStatus>({
@@ -112,7 +109,7 @@ export const OpenConnectControl = () => {
     }
   }
 
-  const toggleCombined = async (enabled: boolean) => {
+  const toggleTunnel = async (enabled: boolean) => {
     if (enabled && (!status.configured || !status.hasPassword)) {
       setDialogOpen(true)
       return
@@ -120,25 +117,7 @@ export const OpenConnectControl = () => {
 
     setBusy(true)
     try {
-      if (enabled) {
-        const tunWasEnabled = verge?.enable_tun_mode === true
-        if (tunWasEnabled) {
-          await patchVerge({ enable_tun_mode: false })
-        }
-        try {
-          await setOpenConnectConnected(true)
-          await patchVerge({ enable_tun_mode: true })
-        } catch (error) {
-          await setOpenConnectConnected(false).catch(() => {})
-          if (tunWasEnabled) {
-            await patchVerge({ enable_tun_mode: true }).catch(() => {})
-          }
-          throw error
-        }
-      } else {
-        await patchVerge({ enable_tun_mode: false })
-        await setOpenConnectConnected(false)
-      }
+      await setOpenConnectConnected(enabled)
       await refresh()
     } catch (error) {
       showNotice.error(error)
@@ -166,20 +145,17 @@ export const OpenConnectControl = () => {
     }
   }
 
-  const combined = status.connected && verge?.enable_tun_mode === true
-
   return (
     <>
-      <Divider sx={{ my: 1.5 }} />
       <Stack
         direction="row"
         sx={{ alignItems: 'center', justifyContent: 'space-between' }}
       >
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <VpnLockRounded color={combined ? 'success' : 'disabled'} />
+          <VpnLockRounded color={status.connected ? 'success' : 'disabled'} />
           <Box>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {t('home.components.openConnect.combined')}
+              {settings.name}
             </Typography>
             <Typography variant="caption" color="text.secondary">
               {status.connected
@@ -199,9 +175,9 @@ export const OpenConnectControl = () => {
             <SettingsRounded fontSize="small" />
           </IconButton>
           <Switch
-            checked={combined}
+            checked={status.connected}
             disabled={busy}
-            onChange={(_, checked) => void toggleCombined(checked)}
+            onChange={(_, checked) => void toggleTunnel(checked)}
           />
         </Stack>
       </Stack>
@@ -269,7 +245,52 @@ export const OpenConnectControl = () => {
               ['endpoint', 'endpoint'],
               ['protocol', 'protocol'],
               ['authGroup', 'authGroup'],
-              ['username', 'username'],
+            ] as const
+          ).map(([field, label]) => (
+            <TextField
+              key={field}
+              size="small"
+              label={t(
+                `home.components.openConnect.fields.${label}` as TranslationKey,
+              )}
+              value={settings[field]}
+              onChange={(event) =>
+                setSettings((current) => ({
+                  ...current,
+                  [field]: event.target.value,
+                }))
+              }
+            />
+          ))}
+          <TextField
+            size="small"
+            label={t('home.components.openConnect.fields.username')}
+            value={settings.username}
+            onChange={(event) =>
+              setSettings((current) => ({
+                ...current,
+                username: event.target.value,
+              }))
+            }
+          />
+          <TextField
+            size="small"
+            type="password"
+            autoComplete="new-password"
+            label={t('home.components.openConnect.fields.password')}
+            placeholder={
+              status.hasPassword
+                ? t('home.components.openConnect.passwordSaved')
+                : undefined
+            }
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          <Typography variant="caption" color="text.secondary">
+            {t('home.components.openConnect.keepPassword')}
+          </Typography>
+          {(
+            [
               ['vpnInterface', 'vpnInterface'],
               ['vpncScript', 'vpncScript'],
               ['physicalInterface', 'physicalInterface'],
@@ -314,22 +335,6 @@ export const OpenConnectControl = () => {
               }
             />
           ))}
-          <TextField
-            size="small"
-            type="password"
-            autoComplete="new-password"
-            label={t('home.components.openConnect.fields.password')}
-            placeholder={
-              status.hasPassword
-                ? t('home.components.openConnect.passwordSaved')
-                : undefined
-            }
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-          <Typography variant="caption" color="text.secondary">
-            {t('home.components.openConnect.keepPassword')}
-          </Typography>
         </Stack>
       </BaseDialog>
     </>
