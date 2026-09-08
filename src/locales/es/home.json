@@ -51,6 +51,7 @@
       "keepPassword": "Leave blank to keep the saved password",
       "detected": "OpenConnect detected: {{path}}",
       "notFound": "OpenConnect was not found on this computer.",
+      "credentialStoreMissing": "The secure credential storage helper was not found. Install the required system package, then rescan.",
       "install": "Install OpenConnect",
       "installing": "Installing…",
       "installSuccess": "OpenConnect installed and detected",

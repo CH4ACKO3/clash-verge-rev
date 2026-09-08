@@ -975,6 +975,7 @@ interface IOpenConnectDiscovery {
   executable?: string
   vpncScript?: string
   installerAvailable: boolean
+  credentialStoreAvailable: boolean
 }
 
 interface IWebDavFile {

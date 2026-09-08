@@ -56,6 +56,7 @@ export const translationKeys = [
   'home.components.openConnect.keepPassword',
   'home.components.openConnect.detected',
   'home.components.openConnect.notFound',
+  'home.components.openConnect.credentialStoreMissing',
   'home.components.openConnect.install',
   'home.components.openConnect.installing',
   'home.components.openConnect.installSuccess',

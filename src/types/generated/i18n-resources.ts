@@ -110,6 +110,7 @@ export interface TranslationResources {
         openConnect: {
           combined: string
           connected: string
+          credentialStoreMissing: string
           detected: string
           fields: {
             authGroup: string

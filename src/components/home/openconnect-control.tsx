@@ -65,6 +65,9 @@ export const OpenConnectControl = () => {
   const [busy, setBusy] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [discovery, setDiscovery] = useState<IOpenConnectDiscovery>()
+  const discoveryReady = Boolean(
+    discovery?.executable && discovery.credentialStoreAvailable,
+  )
 
   const refresh = async () => {
     const [storedSettings, currentStatus, detected] = await Promise.all([
@@ -218,7 +221,7 @@ export const OpenConnectControl = () => {
           {t('home.components.openConnect.passwordHint')}
         </Alert>
         <Alert
-          severity={discovery?.executable ? 'success' : 'warning'}
+          severity={discoveryReady ? 'success' : 'warning'}
           sx={{ mb: 2 }}
           action={
             <Stack direction="row" spacing={0.5}>
@@ -230,7 +233,7 @@ export const OpenConnectControl = () => {
               >
                 {t('home.components.openConnect.rescan')}
               </Button>
-              {!discovery?.executable && discovery?.installerAvailable && (
+              {!discoveryReady && discovery?.installerAvailable && (
                 <Button
                   size="small"
                   disabled={installing}
@@ -246,10 +249,12 @@ export const OpenConnectControl = () => {
             </Stack>
           }
         >
-          {discovery?.executable
+          {discoveryReady
             ? t('home.components.openConnect.detected', {
-                path: discovery.executable,
+                path: discovery?.executable ?? '',
               })
+            : discovery?.executable && !discovery.credentialStoreAvailable
+              ? t('home.components.openConnect.credentialStoreMissing')
             : discovery?.installerAvailable === false
               ? t('home.components.openConnect.installUnavailable', {
                   platform: discovery.platform,

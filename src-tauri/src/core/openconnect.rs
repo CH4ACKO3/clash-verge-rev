@@ -35,6 +35,7 @@ pub struct OpenConnectDiscovery {
     pub executable: Option<String>,
     pub vpnc_script: Option<String>,
     pub installer_available: bool,
+    pub credential_store_available: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -264,7 +265,23 @@ pub async fn discover() -> Result<OpenConnectDiscovery> {
         executable: executable.map(|path| path.to_string_lossy().into_owned()),
         vpnc_script: vpnc_script.map(|path| path.to_string_lossy().into_owned()),
         installer_available: installer_available(),
+        credential_store_available: credential_store_available(),
     })
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const fn credential_store_available() -> bool {
+    true
+}
+
+#[cfg(target_os = "linux")]
+fn credential_store_available() -> bool {
+    command_in_path("secret-tool").is_some()
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+const fn credential_store_available() -> bool {
+    false
 }
 
 pub async fn install() -> Result<OpenConnectDiscovery> {
@@ -280,6 +297,9 @@ pub async fn install() -> Result<OpenConnectDiscovery> {
     let discovery = discover().await?;
     if discovery.executable.is_none() {
         bail!("OpenConnect installation completed, but the executable could not be found");
+    }
+    if !discovery.credential_store_available {
+        bail!("OpenConnect installation completed, but secure credential storage is unavailable");
     }
     Ok(discovery)
 }
