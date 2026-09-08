@@ -107,6 +107,31 @@ export interface TranslationResources {
           }
           title: string
         }
+        openConnect: {
+          combined: string
+          connected: string
+          fields: {
+            authGroup: string
+            directDomains: string
+            dnsServers: string
+            endpoint: string
+            executable: string
+            name: string
+            password: string
+            physicalInterface: string
+            protocol: string
+            routePrefixes: string
+            username: string
+            vpncScript: string
+            vpnInterface: string
+          }
+          keepPassword: string
+          notConfigured: string
+          passwordHint: string
+          passwordSaved: string
+          ready: string
+          settingsTitle: string
+        }
         proxyTun: {
           status: {
             systemProxyDisabled: string

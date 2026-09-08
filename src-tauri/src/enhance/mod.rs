@@ -961,6 +961,7 @@ pub async fn enhance(
 
     notify_discarded_keys(authoritative.overridden(&authoritative, &authoritative.current(&config)));
     let config = authoritative.enforce(config);
+    let config = crate::core::openconnect::apply_split_routing(config).await;
     let config = ensure_lan_bind_address(config);
 
     let config = cleanup_proxy_groups(config);

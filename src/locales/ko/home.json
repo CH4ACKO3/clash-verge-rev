@@ -40,6 +40,31 @@
         "tunMode": "TUN 모드는 모든 애플리케이션 트래픽을 인수할 수 있으며 시스템 프록시를 따르지 않는 특수 앱에 적합합니다"
       }
     },
+    "openConnect": {
+      "combined": "Private proxy + campus VPN",
+      "connected": "{{name}} connected; Mihomo TUN enabled",
+      "ready": "{{name}} ready",
+      "notConfigured": "Configure a local OpenConnect tunnel",
+      "settingsTitle": "OpenConnect tunnel",
+      "passwordHint": "The password is stored in Windows Credential Manager and is never written to the Clash profile.",
+      "passwordSaved": "A saved password already exists",
+      "keepPassword": "Leave blank to keep the saved password",
+      "fields": {
+        "name": "Display name",
+        "executable": "openconnect.exe path",
+        "endpoint": "VPN endpoint",
+        "protocol": "Protocol",
+        "authGroup": "Authentication group",
+        "username": "Username",
+        "vpnInterface": "VPN interface name",
+        "vpncScript": "vpnc script path",
+        "physicalInterface": "Physical interface (optional)",
+        "routePrefixes": "Campus IP prefixes (one per line)",
+        "directDomains": "Campus domains (one per line)",
+        "dnsServers": "Campus DNS servers (one per line)",
+        "password": "Password"
+      }
+    },
     "clashInfo": {
       "title": "Clash 정보",
       "fields": {

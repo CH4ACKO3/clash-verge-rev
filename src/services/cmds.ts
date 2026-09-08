@@ -211,6 +211,25 @@ export async function takeDiscardedKeysNotice() {
   return invoke<string | null>('take_discarded_keys_notice')
 }
 
+export async function getOpenConnectSettings() {
+  return invoke<IOpenConnectSettings | null>('get_openconnect_settings')
+}
+
+export async function saveOpenConnectSettings(
+  settings: IOpenConnectSettings,
+  password?: string,
+) {
+  return invoke<void>('save_openconnect_settings', { settings, password })
+}
+
+export async function getOpenConnectStatus() {
+  return invoke<IOpenConnectStatus>('get_openconnect_status')
+}
+
+export async function setOpenConnectConnected(enabled: boolean) {
+  return invoke<IOpenConnectStatus>('set_openconnect_connected', { enabled })
+}
+
 export async function getSystemProxy() {
   return invoke<{
     enable: boolean

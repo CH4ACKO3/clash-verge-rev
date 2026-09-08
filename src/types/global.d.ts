@@ -948,6 +948,28 @@ interface IVergeConfig {
   enable_external_controller?: boolean
 }
 
+interface IOpenConnectSettings {
+  name: string
+  executable: string
+  endpoint: string
+  protocol: string
+  authGroup: string
+  username: string
+  vpnInterface: string
+  vpncScript: string
+  physicalInterface: string
+  routePrefixes: string[]
+  directDomains: string[]
+  dnsServers: string[]
+}
+
+interface IOpenConnectStatus {
+  configured: boolean
+  hasPassword: boolean
+  connected: boolean
+  processId?: number
+}
+
 interface IWebDavFile {
   filename: string
   href: string

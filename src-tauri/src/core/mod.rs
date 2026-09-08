@@ -8,6 +8,7 @@ pub mod manager;
 #[cfg(target_os = "macos")]
 pub mod network_watch;
 pub mod notification;
+pub mod openconnect;
 pub(crate) mod owner_identity;
 pub mod proxy_control;
 pub mod proxy_view;
