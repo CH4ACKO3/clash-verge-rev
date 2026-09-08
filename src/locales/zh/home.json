@@ -46,7 +46,7 @@
       "ready": "{{name}} 已就绪",
       "notConfigured": "配置本地 OpenConnect 隧道",
       "settingsTitle": "OpenConnect 隧道",
-      "passwordHint": "密码保存在 Windows 凭据管理器中，不会写入 Clash 配置或订阅。",
+      "passwordHint": "密码保存在操作系统凭据库中，不会写入 Clash 配置或订阅。",
       "passwordSaved": "已保存密码",
       "keepPassword": "留空以保留已保存的密码",
       "detected": "已发现 OpenConnect：{{path}}",
@@ -58,7 +58,7 @@
       "rescan": "重新扫描",
       "fields": {
         "name": "显示名称",
-        "executable": "openconnect.exe 路径",
+        "executable": "OpenConnect 可执行文件路径",
         "endpoint": "VPN 地址",
         "protocol": "协议",
         "authGroup": "认证组",

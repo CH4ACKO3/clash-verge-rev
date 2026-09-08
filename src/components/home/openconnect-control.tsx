@@ -118,11 +118,18 @@ export const OpenConnectControl = () => {
     setBusy(true)
     try {
       if (enabled) {
-        await setOpenConnectConnected(true)
+        const tunWasEnabled = verge?.enable_tun_mode === true
+        if (tunWasEnabled) {
+          await patchVerge({ enable_tun_mode: false })
+        }
         try {
+          await setOpenConnectConnected(true)
           await patchVerge({ enable_tun_mode: true })
         } catch (error) {
           await setOpenConnectConnected(false).catch(() => {})
+          if (tunWasEnabled) {
+            await patchVerge({ enable_tun_mode: true }).catch(() => {})
+          }
           throw error
         }
       } else {

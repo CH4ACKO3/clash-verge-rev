@@ -4,16 +4,24 @@ use serde::{Deserialize, Serialize};
 use serde_yaml_ng::{Mapping, Value};
 #[cfg(target_os = "windows")]
 use sha2::{Digest as _, Sha256};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::ffi::OsStr;
 #[cfg(target_os = "windows")]
 use std::ffi::OsString;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::io::Write as _;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::process::Stdio;
 use tokio::fs;
 
 const SETTINGS_FILE: &str = "openconnect.json";
 const PID_FILE: &str = "openconnect.pid";
 const LOG_FILE: &str = "openconnect.log";
 const CREDENTIAL_TARGET: &str = "ClashVergeRev/OpenConnect/default";
+#[cfg(target_os = "macos")]
+const CREDENTIAL_ACCOUNT: &str = "default";
 #[cfg(target_os = "windows")]
 const WINDOWS_INSTALLER_URL: &str =
     "https://www.infradead.org/openconnect-gui/download/openconnect-gui-1.6.0-win64.exe";
@@ -340,13 +348,16 @@ async fn install_linux() -> Result<()> {
     let pkexec = command_in_path("pkexec")
         .ok_or_else(|| anyhow::anyhow!("pkexec is required to install OpenConnect automatically"))?;
     let (manager, arguments): (PathBuf, &[&str]) = if let Some(manager) = command_in_path("apt-get") {
-        (manager, &["install", "-y", "openconnect"])
+        (manager, &["install", "-y", "openconnect", "libsecret-tools"])
     } else if let Some(manager) = command_in_path("dnf") {
-        (manager, &["install", "-y", "openconnect"])
+        (manager, &["install", "-y", "openconnect", "libsecret"])
     } else if let Some(manager) = command_in_path("pacman") {
-        (manager, &["-S", "--needed", "--noconfirm", "openconnect"])
+        (manager, &["-S", "--needed", "--noconfirm", "openconnect", "libsecret"])
     } else if let Some(manager) = command_in_path("zypper") {
-        (manager, &["--non-interactive", "install", "openconnect"])
+        (
+            manager,
+            &["--non-interactive", "install", "openconnect", "libsecret-tools"],
+        )
     } else {
         bail!("No supported Linux package manager was found");
     };
@@ -508,18 +519,50 @@ async fn process_is_running(pid: u32) -> bool {
             .await
             .is_ok_and(|status| status.success())
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
-        let _ = pid;
+        let pid = match i32::try_from(pid) {
+            Ok(pid) => pid,
+            Err(_) => return false,
+        };
+        let result = unsafe { libc::kill(pid, 0) };
+        if result != 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EPERM) {
+            return false;
+        }
+        process_is_openconnect(pid).await
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
         false
     }
 }
 
+#[cfg(target_os = "linux")]
+async fn process_is_openconnect(pid: i32) -> bool {
+    fs::read_link(format!("/proc/{pid}/exe"))
+        .await
+        .ok()
+        .and_then(|path| path.file_name().map(|name| name == "openconnect"))
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+async fn process_is_openconnect(pid: i32) -> bool {
+    tokio::process::Command::new("/bin/ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+        .await
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .is_some_and(|command| Path::new(command.trim()).file_name() == Some(OsStr::new("openconnect")))
+}
+
 pub async fn set_connected(enabled: bool) -> Result<OpenConnectStatus> {
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         let _ = enabled;
-        bail!("OpenConnect orchestration is currently supported on Windows only");
+        bail!("OpenConnect orchestration is not supported on this platform");
     }
 
     #[cfg(target_os = "windows")]
@@ -573,6 +616,196 @@ pub async fn set_connected(enabled: bool) -> Result<OpenConnectStatus> {
         }
         status().await
     }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        set_connected_unix(enabled).await
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn set_connected_unix(enabled: bool) -> Result<OpenConnectStatus> {
+    let settings = load_settings()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("OpenConnect is not configured"))?;
+    settings.validate()?;
+
+    if enabled {
+        if status().await?.connected {
+            return status().await;
+        }
+        let password = load_password()?.ok_or_else(|| anyhow::anyhow!("OpenConnect password is not saved"))?;
+        let settings = settings.clone();
+        tokio::task::spawn_blocking(move || start_openconnect(&settings, password))
+            .await
+            .context("OpenConnect launch task failed")??;
+    } else if let Some(pid) = status().await?.process_id {
+        tokio::task::spawn_blocking(move || stop_openconnect(pid))
+            .await
+            .context("OpenConnect stop task failed")??;
+    } else {
+        remove_pid_file()?;
+    }
+
+    for _ in 0..40 {
+        let current = status().await?;
+        if current.connected == enabled {
+            return Ok(current);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    let current = status().await?;
+    if current.connected != enabled {
+        bail!(
+            "OpenConnect did not {} within the expected time",
+            if enabled { "connect" } else { "disconnect" }
+        );
+    }
+    Ok(current)
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
+fn openconnect_arguments(settings: &OpenConnectSettings) -> Result<Vec<String>> {
+    let pid = pid_path()?.to_string_lossy().into_owned();
+    let mut arguments = vec![
+        format!("--protocol={}", settings.protocol),
+        format!("--user={}", settings.username),
+        "--passwd-on-stdin".into(),
+        format!("--interface={}", settings.vpn_interface),
+        "--background".into(),
+        format!("--pid-file={pid}"),
+    ];
+    if !settings.auth_group.is_empty() {
+        arguments.push(format!("--authgroup={}", settings.auth_group));
+    }
+    if !settings.vpnc_script.is_empty() {
+        arguments.push(format!("--script={}", settings.vpnc_script));
+    }
+    arguments.extend(["--reconnect-timeout=1000".into(), settings.endpoint.clone()]);
+    Ok(arguments)
+}
+
+#[cfg(target_os = "linux")]
+fn start_openconnect(settings: &OpenConnectSettings, password: String) -> Result<()> {
+    let pkexec = command_in_path("pkexec").ok_or_else(|| anyhow::anyhow!("pkexec is required to start OpenConnect"))?;
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path()?)?;
+    let stderr = log.try_clone()?;
+    let mut child = std::process::Command::new(pkexec)
+        .arg(&settings.executable)
+        .args(openconnect_arguments(settings)?)
+        .stdin(Stdio::piped())
+        .stdout(log)
+        .stderr(stderr)
+        .spawn()
+        .context("failed to request permission to start OpenConnect")?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .context("failed to open OpenConnect standard input")?;
+    stdin.write_all(password.as_bytes())?;
+    stdin.write_all(b"\n")?;
+    drop(stdin);
+    let result = child.wait()?;
+    if !result.success() {
+        bail!("OpenConnect exited with status {result}");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn start_openconnect(settings: &OpenConnectSettings, password: String) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path()?)?;
+    let secret_path = tunnel_dir()?.join(format!("openconnect-secret-{}", nanoid::nanoid!()));
+    let mut secret = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&secret_path)?;
+    secret.write_all(password.as_bytes())?;
+    secret.write_all(b"\n")?;
+    drop(secret);
+
+    let executable = shell_single_quote(&settings.executable);
+    let arguments = openconnect_arguments(settings)?
+        .iter()
+        .map(|argument| shell_single_quote(argument))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let input = shell_single_quote(&secret_path.to_string_lossy());
+    let log = shell_single_quote(&log_path()?.to_string_lossy());
+    let shell =
+        format!("{executable} {arguments} < {input} >> {log} 2>&1; result=$?; /bin/rm -f {input}; exit $result");
+    let script = format!(
+        "do shell script \"{}\" with administrator privileges with prompt \"Clash Verge needs permission to connect the campus VPN.\"",
+        escape_osascript(&shell)
+    );
+    let result = std::process::Command::new("/usr/bin/osascript")
+        .args(["-e", &script])
+        .status()
+        .context("failed to request permission to start OpenConnect");
+    let _ = std::fs::remove_file(&secret_path);
+    let result = result?;
+    if !result.success() {
+        bail!("OpenConnect exited with status {result}");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn stop_openconnect(pid: u32) -> Result<()> {
+    let pkexec = command_in_path("pkexec").ok_or_else(|| anyhow::anyhow!("pkexec is required to stop OpenConnect"))?;
+    let result = std::process::Command::new(pkexec)
+        .arg(OsStr::new("/bin/kill"))
+        .arg(OsStr::new("-TERM"))
+        .arg(pid.to_string())
+        .status()?;
+    if !result.success() {
+        bail!("Failed to stop OpenConnect: {result}");
+    }
+    remove_pid_file()
+}
+
+#[cfg(target_os = "macos")]
+fn stop_openconnect(pid: u32) -> Result<()> {
+    let shell = format!("/bin/kill -TERM {pid}");
+    let script = format!(
+        "do shell script \"{shell}\" with administrator privileges with prompt \"Clash Verge needs permission to disconnect the campus VPN.\""
+    );
+    let result = std::process::Command::new("/usr/bin/osascript")
+        .args(["-e", &script])
+        .status()?;
+    if !result.success() {
+        bail!("Failed to stop OpenConnect: {result}");
+    }
+    remove_pid_file()
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn remove_pid_file() -> Result<()> {
+    match std::fs::remove_file(pid_path()?) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).context("failed to remove the OpenConnect PID file"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn shell_single_quote(value: impl AsRef<OsStr>) -> String {
+    let value = value.as_ref().to_string_lossy();
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
+#[cfg(target_os = "macos")]
+fn escape_osascript(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 #[cfg(target_os = "windows")]
@@ -616,9 +849,40 @@ fn store_password(username: &str, password: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+fn store_password(username: &str, password: &str) -> Result<()> {
+    let _ = username;
+    security_framework::passwords::set_generic_password(CREDENTIAL_TARGET, CREDENTIAL_ACCOUNT, password.as_bytes())
+        .context("failed to store the OpenConnect password in Keychain")
+}
+
+#[cfg(target_os = "linux")]
+fn store_password(username: &str, password: &str) -> Result<()> {
+    let secret_tool = command_in_path("secret-tool")
+        .ok_or_else(|| anyhow::anyhow!("secret-tool is required to store the OpenConnect password securely"))?;
+    let label = format!("--label=Clash Verge OpenConnect ({username})");
+    let mut child = std::process::Command::new(secret_tool)
+        .args(["store", &label, "application", CREDENTIAL_TARGET])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .context("failed to start secret-tool")?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .context("failed to open secret-tool standard input")?;
+    stdin.write_all(password.as_bytes())?;
+    drop(stdin);
+    let result = child.wait()?;
+    if !result.success() {
+        bail!("secret-tool failed to store the OpenConnect password");
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 fn store_password(_username: &str, _password: &str) -> Result<()> {
-    bail!("Credential storage is currently supported on Windows only")
+    bail!("Credential storage is not supported on this platform")
 }
 
 #[cfg(target_os = "windows")]
@@ -639,7 +903,49 @@ fn password_exists() -> Result<bool> {
     Ok(true)
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+fn password_exists() -> Result<bool> {
+    Ok(load_password()?.is_some())
+}
+
+#[cfg(target_os = "linux")]
+fn password_exists() -> Result<bool> {
+    if command_in_path("secret-tool").is_none() {
+        return Ok(false);
+    }
+    Ok(load_password()?.is_some())
+}
+
+#[cfg(target_os = "macos")]
+fn load_password() -> Result<Option<String>> {
+    let options =
+        security_framework::passwords::PasswordOptions::new_generic_password(CREDENTIAL_TARGET, CREDENTIAL_ACCOUNT);
+    match security_framework::passwords::generic_password(options) {
+        Ok(password) => String::from_utf8(password)
+            .map(Some)
+            .context("the OpenConnect password in Keychain is not valid UTF-8"),
+        Err(error) if error.code() == -25300 => Ok(None),
+        Err(error) => Err(error).context("failed to read the OpenConnect password from Keychain"),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn load_password() -> Result<Option<String>> {
+    let secret_tool = command_in_path("secret-tool")
+        .ok_or_else(|| anyhow::anyhow!("secret-tool is required to read the saved OpenConnect password"))?;
+    let output = std::process::Command::new(secret_tool)
+        .args(["lookup", "application", CREDENTIAL_TARGET])
+        .output()
+        .context("failed to start secret-tool")?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let password =
+        String::from_utf8(output.stdout).context("secret-tool returned a password that is not valid UTF-8")?;
+    Ok(Some(password.trim_end_matches(['\r', '\n']).to_owned()))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 fn password_exists() -> Result<bool> {
     Ok(false)
 }
@@ -655,7 +961,30 @@ fn delete_password() -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+fn delete_password() -> Result<()> {
+    match security_framework::passwords::delete_generic_password(CREDENTIAL_TARGET, CREDENTIAL_ACCOUNT) {
+        Ok(()) => Ok(()),
+        Err(error) if error.code() == -25300 => Ok(()),
+        Err(error) => Err(error).context("failed to delete the OpenConnect password from Keychain"),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn delete_password() -> Result<()> {
+    let Some(secret_tool) = command_in_path("secret-tool") else {
+        return Ok(());
+    };
+    let result = std::process::Command::new(secret_tool)
+        .args(["clear", "application", CREDENTIAL_TARGET])
+        .status()?;
+    if !result.success() {
+        bail!("secret-tool failed to delete the OpenConnect password");
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 fn delete_password() -> Result<()> {
     Ok(())
 }
@@ -697,5 +1026,29 @@ mod tests {
             result["dns"]["nameserver-policy"]["+.example.edu"],
             Value::Sequence(vec![Value::from("10.0.0.53")])
         );
+    }
+
+    #[test]
+    fn unix_arguments_use_stdin_and_managed_pid_file() {
+        let settings = OpenConnectSettings {
+            name: "Campus VPN".into(),
+            executable: "/usr/bin/openconnect".into(),
+            endpoint: "https://vpn.example.edu".into(),
+            protocol: "anyconnect".into(),
+            auth_group: "Students".into(),
+            username: "student".into(),
+            vpn_interface: "campus0".into(),
+            vpnc_script: "/etc/vpnc/vpnc-script".into(),
+            physical_interface: String::new(),
+            route_prefixes: Vec::new(),
+            direct_domains: Vec::new(),
+            dns_servers: Vec::new(),
+        };
+
+        let arguments = openconnect_arguments(&settings).expect("arguments");
+        assert!(arguments.iter().any(|argument| argument == "--passwd-on-stdin"));
+        assert!(arguments.iter().any(|argument| argument == "--background"));
+        assert!(arguments.iter().any(|argument| argument.starts_with("--pid-file=")));
+        assert!(arguments.iter().all(|argument| !argument.contains("password")));
     }
 }
