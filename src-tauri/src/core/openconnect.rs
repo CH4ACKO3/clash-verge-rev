@@ -27,6 +27,8 @@ const WINDOWS_INSTALLER_URL: &str =
     "https://www.infradead.org/openconnect-gui/download/openconnect-gui-1.6.0-win64.exe";
 #[cfg(target_os = "windows")]
 const WINDOWS_INSTALLER_SHA256: &str = "4DBE109C7B72F8F2F4DAF5C311F99D4DD8A2919EEFE01128E60BABFA1DEEC852";
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +74,7 @@ impl OpenConnectSettings {
         if self.username.trim().is_empty() {
             bail!("VPN username is required");
         }
+        #[cfg(not(target_os = "macos"))]
         if self.vpn_interface.trim().is_empty() {
             bail!("VPN interface name is required");
         }
@@ -533,11 +536,11 @@ async fn process_is_running(pid: u32) -> bool {
     #[cfg(target_os = "windows")]
     {
         let script = format!("if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}");
-        tokio::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-            .status()
-            .await
-            .is_ok_and(|status| status.success())
+        let mut command = tokio::process::Command::new("powershell.exe");
+        command
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+        command.status().await.is_ok_and(|status| status.success())
     }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
@@ -691,10 +694,12 @@ fn openconnect_arguments(settings: &OpenConnectSettings) -> Result<Vec<String>> 
         format!("--protocol={}", settings.protocol),
         format!("--user={}", settings.username),
         "--passwd-on-stdin".into(),
-        format!("--interface={}", settings.vpn_interface),
         "--background".into(),
         format!("--pid-file={pid}"),
     ];
+    if !settings.vpn_interface.trim().is_empty() {
+        arguments.push(format!("--interface={}", settings.vpn_interface));
+    }
     if !settings.auth_group.is_empty() {
         arguments.push(format!("--authgroup={}", settings.auth_group));
     }
@@ -756,7 +761,7 @@ fn start_openconnect(settings: &OpenConnectSettings, password: String) -> Result
     let executable = shell_single_quote(&settings.executable);
     let arguments = openconnect_arguments(settings)?
         .iter()
-        .map(|argument| shell_single_quote(argument))
+        .map(shell_single_quote)
         .collect::<Vec<_>>()
         .join(" ");
     let input = shell_single_quote(&secret_path);
@@ -1070,5 +1075,26 @@ mod tests {
         assert!(arguments.iter().any(|argument| argument == "--background"));
         assert!(arguments.iter().any(|argument| argument.starts_with("--pid-file=")));
         assert!(arguments.iter().all(|argument| !argument.contains("password")));
+    }
+
+    #[test]
+    fn unix_arguments_allow_automatic_interface_selection() {
+        let settings = OpenConnectSettings {
+            name: "Campus VPN".into(),
+            executable: "/usr/bin/openconnect".into(),
+            endpoint: "https://vpn.example.edu".into(),
+            protocol: "anyconnect".into(),
+            auth_group: String::new(),
+            username: "student".into(),
+            vpn_interface: String::new(),
+            vpnc_script: String::new(),
+            physical_interface: String::new(),
+            route_prefixes: Vec::new(),
+            direct_domains: Vec::new(),
+            dns_servers: Vec::new(),
+        };
+
+        let arguments = openconnect_arguments(&settings).expect("arguments");
+        assert!(arguments.iter().all(|argument| !argument.starts_with("--interface=")));
     }
 }

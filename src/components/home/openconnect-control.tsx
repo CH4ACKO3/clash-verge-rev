@@ -73,7 +73,11 @@ export const OpenConnectControl = () => {
       discoverOpenConnect(),
     ])
     setSettings((current) => {
-      const next = storedSettings ?? current
+      const next =
+        storedSettings ??
+        (detected.platform === 'macos'
+          ? { ...current, vpnInterface: '', physicalInterface: 'en0' }
+          : current)
       return {
         ...next,
         executable: detected.executable ?? next.executable,
@@ -231,11 +235,11 @@ export const OpenConnectControl = () => {
               })
             : discovery?.executable && !discovery.credentialStoreAvailable
               ? t('home.components.openConnect.credentialStoreMissing')
-            : discovery?.installerAvailable === false
-              ? t('home.components.openConnect.installUnavailable', {
-                  platform: discovery.platform,
-                })
-              : t('home.components.openConnect.notFound')}
+              : discovery?.installerAvailable === false
+                ? t('home.components.openConnect.installUnavailable', {
+                    platform: discovery.platform,
+                  })
+                : t('home.components.openConnect.notFound')}
         </Alert>
         <Stack spacing={1.5} sx={{ pt: 0.5 }}>
           {(

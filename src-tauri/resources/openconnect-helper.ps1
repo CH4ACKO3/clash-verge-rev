@@ -19,7 +19,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-internal static class VergeCredentialReader
+public static class VergeCredentialReader
 {
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct Credential
@@ -44,7 +44,7 @@ internal static class VergeCredentialReader
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern void CredFree(IntPtr credential);
 
-    internal static string Read(string target)
+    public static string Read(string target)
     {
         IntPtr pointer;
         if (!CredRead(target, 1, 0, out pointer))
