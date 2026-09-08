@@ -2,15 +2,32 @@ use crate::utils::dirs;
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::{Mapping, Value};
+#[cfg(target_os = "windows")]
+use sha2::{Digest as _, Sha256};
+#[cfg(target_os = "windows")]
 use std::ffi::OsString;
 use std::net::IpAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 
 const SETTINGS_FILE: &str = "openconnect.json";
 const PID_FILE: &str = "openconnect.pid";
 const LOG_FILE: &str = "openconnect.log";
 const CREDENTIAL_TARGET: &str = "ClashVergeRev/OpenConnect/default";
+#[cfg(target_os = "windows")]
+const WINDOWS_INSTALLER_URL: &str =
+    "https://www.infradead.org/openconnect-gui/download/openconnect-gui-1.6.0-win64.exe";
+#[cfg(target_os = "windows")]
+const WINDOWS_INSTALLER_SHA256: &str = "4DBE109C7B72F8F2F4DAF5C311F99D4DD8A2919EEFE01128E60BABFA1DEEC852";
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenConnectDiscovery {
+    pub platform: String,
+    pub executable: Option<String>,
+    pub vpnc_script: Option<String>,
+    pub installer_available: bool,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,6 +132,233 @@ fn pid_path() -> Result<PathBuf> {
 
 fn log_path() -> Result<PathBuf> {
     Ok(tunnel_dir()?.join(LOG_FILE))
+}
+
+fn command_in_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+fn executable_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(path) = command_in_path("openconnect.exe") {
+            candidates.push(path);
+        }
+        for variable in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+            if let Some(root) = std::env::var_os(variable) {
+                let root = PathBuf::from(root);
+                candidates.push(root.join("OpenConnect-GUI").join("openconnect.exe"));
+                candidates.push(root.join("Programs").join("OpenConnect-GUI").join("openconnect.exe"));
+            }
+        }
+        for root in [r"C:\App", r"C:\Apps", r"D:\App", r"D:\Apps"] {
+            candidates.push(Path::new(root).join("OpenConnect-GUI").join("openconnect.exe"));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(path) = command_in_path("openconnect") {
+            candidates.push(path);
+        }
+        candidates.extend([
+            PathBuf::from("/opt/homebrew/bin/openconnect"),
+            PathBuf::from("/usr/local/bin/openconnect"),
+            PathBuf::from("/opt/local/sbin/openconnect"),
+        ]);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(path) = command_in_path("openconnect") {
+            candidates.push(path);
+        }
+        candidates.extend([
+            PathBuf::from("/usr/bin/openconnect"),
+            PathBuf::from("/usr/sbin/openconnect"),
+            PathBuf::from("/usr/local/bin/openconnect"),
+        ]);
+    }
+    candidates
+}
+
+fn vpnc_script_candidates(executable: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(parent) = executable.and_then(Path::parent) {
+        candidates.push(parent.join("vpnc-script.js"));
+        candidates.push(parent.join("vpnc-script"));
+        if let Some(root) = parent.parent() {
+            candidates.push(root.join("share").join("vpnc-scripts").join("vpnc-script"));
+            candidates.push(root.join("etc").join("vpnc").join("vpnc-script"));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    candidates.extend([
+        PathBuf::from("/opt/homebrew/etc/vpnc/vpnc-script"),
+        PathBuf::from("/usr/local/etc/vpnc/vpnc-script"),
+        PathBuf::from("/opt/local/etc/vpnc/vpnc-script"),
+    ]);
+    #[cfg(target_os = "linux")]
+    candidates.extend([
+        PathBuf::from("/usr/share/vpnc-scripts/vpnc-script"),
+        PathBuf::from("/etc/vpnc/vpnc-script"),
+    ]);
+    candidates
+}
+
+#[cfg(target_os = "windows")]
+const fn installer_available() -> bool {
+    true
+}
+
+#[cfg(target_os = "macos")]
+fn installer_available() -> bool {
+    command_in_path("brew").is_some()
+        || Path::new("/opt/homebrew/bin/brew").is_file()
+        || Path::new("/usr/local/bin/brew").is_file()
+}
+
+#[cfg(target_os = "linux")]
+fn installer_available() -> bool {
+    command_in_path("pkexec").is_some()
+        && ["apt-get", "dnf", "pacman", "zypper"]
+            .iter()
+            .any(|manager| command_in_path(manager).is_some())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+const fn installer_available() -> bool {
+    false
+}
+
+pub async fn discover() -> Result<OpenConnectDiscovery> {
+    let stored = load_settings().await?;
+    let executable = stored
+        .as_ref()
+        .map(|settings| PathBuf::from(&settings.executable))
+        .filter(|path| path.is_file())
+        .or_else(|| executable_candidates().into_iter().find(|path| path.is_file()));
+    let vpnc_script = stored
+        .as_ref()
+        .map(|settings| PathBuf::from(&settings.vpnc_script))
+        .filter(|path| path.is_file())
+        .or_else(|| {
+            vpnc_script_candidates(executable.as_deref())
+                .into_iter()
+                .find(|path| path.is_file())
+        });
+
+    Ok(OpenConnectDiscovery {
+        platform: std::env::consts::OS.into(),
+        executable: executable.map(|path| path.to_string_lossy().into_owned()),
+        vpnc_script: vpnc_script.map(|path| path.to_string_lossy().into_owned()),
+        installer_available: installer_available(),
+    })
+}
+
+pub async fn install() -> Result<OpenConnectDiscovery> {
+    #[cfg(target_os = "windows")]
+    install_windows().await?;
+    #[cfg(target_os = "macos")]
+    install_macos().await?;
+    #[cfg(target_os = "linux")]
+    install_linux().await?;
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    bail!("Automatic OpenConnect installation is not supported on this platform");
+
+    let discovery = discover().await?;
+    if discovery.executable.is_none() {
+        bail!("OpenConnect installation completed, but the executable could not be found");
+    }
+    Ok(discovery)
+}
+
+#[cfg(target_os = "windows")]
+async fn install_windows() -> Result<()> {
+    let download_dir = tunnel_dir()?.join("downloads");
+    fs::create_dir_all(&download_dir).await?;
+    let installer = download_dir.join("openconnect-gui-1.6.0-win64.exe");
+    let needs_download = match fs::read(&installer).await {
+        Ok(bytes) => sha256_hex(&bytes) != WINDOWS_INSTALLER_SHA256,
+        Err(_) => true,
+    };
+    if needs_download {
+        let response = reqwest::get(WINDOWS_INSTALLER_URL)
+            .await
+            .context("failed to download the official OpenConnect installer")?
+            .error_for_status()
+            .context("the official OpenConnect download returned an error")?;
+        let bytes = response
+            .bytes()
+            .await
+            .context("failed to read the OpenConnect installer")?;
+        if sha256_hex(&bytes) != WINDOWS_INSTALLER_SHA256 {
+            bail!("OpenConnect installer checksum verification failed");
+        }
+        fs::write(&installer, &bytes).await?;
+    }
+
+    let result = tokio::task::spawn_blocking(move || runas::Command::new(&installer).show(true).status())
+        .await
+        .context("OpenConnect installer task failed")??;
+    if !result.success() {
+        bail!("OpenConnect installer exited with status {result}");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02X}")).collect()
+}
+
+#[cfg(target_os = "macos")]
+async fn install_macos() -> Result<()> {
+    let brew = command_in_path("brew")
+        .or_else(|| {
+            ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+                .into_iter()
+                .map(PathBuf::from)
+                .find(|path| path.is_file())
+        })
+        .ok_or_else(|| anyhow::anyhow!("Homebrew is required to install OpenConnect automatically"))?;
+    let status = tokio::process::Command::new(brew)
+        .args(["install", "openconnect"])
+        .status()
+        .await?;
+    if !status.success() {
+        bail!("Homebrew failed to install OpenConnect");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+async fn install_linux() -> Result<()> {
+    let pkexec = command_in_path("pkexec")
+        .ok_or_else(|| anyhow::anyhow!("pkexec is required to install OpenConnect automatically"))?;
+    let (manager, arguments): (PathBuf, &[&str]) = if let Some(manager) = command_in_path("apt-get") {
+        (manager, &["install", "-y", "openconnect"])
+    } else if let Some(manager) = command_in_path("dnf") {
+        (manager, &["install", "-y", "openconnect"])
+    } else if let Some(manager) = command_in_path("pacman") {
+        (manager, &["-S", "--needed", "--noconfirm", "openconnect"])
+    } else if let Some(manager) = command_in_path("zypper") {
+        (manager, &["--non-interactive", "install", "openconnect"])
+    } else {
+        bail!("No supported Linux package manager was found");
+    };
+    let status = tokio::process::Command::new(pkexec)
+        .arg(manager)
+        .args(arguments)
+        .status()
+        .await?;
+    if !status.success() {
+        bail!("The Linux package manager failed to install OpenConnect");
+    }
+    Ok(())
 }
 
 pub async fn load_settings() -> Result<Option<OpenConnectSettings>> {

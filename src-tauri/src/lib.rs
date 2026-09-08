@@ -137,6 +137,8 @@ mod app_init {
             cmd::open_logs_dir,
             cmd::open_core_dir,
             cmd::get_network_interfaces,
+            cmd::discover_openconnect,
+            cmd::install_openconnect,
             cmd::get_openconnect_settings,
             cmd::save_openconnect_settings,
             cmd::get_openconnect_status,

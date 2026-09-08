@@ -110,6 +110,7 @@ export interface TranslationResources {
         openConnect: {
           combined: string
           connected: string
+          detected: string
           fields: {
             authGroup: string
             directDomains: string
@@ -125,11 +126,17 @@ export interface TranslationResources {
             vpncScript: string
             vpnInterface: string
           }
+          install: string
+          installing: string
+          installSuccess: string
+          installUnavailable: string
           keepPassword: string
           notConfigured: string
+          notFound: string
           passwordHint: string
           passwordSaved: string
           ready: string
+          rescan: string
           settingsTitle: string
         }
         proxyTun: {

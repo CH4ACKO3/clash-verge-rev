@@ -1,5 +1,15 @@
 use super::{CmdResult, StringifyErr as _};
-use crate::core::openconnect::{self, OpenConnectSettings, OpenConnectStatus};
+use crate::core::openconnect::{self, OpenConnectDiscovery, OpenConnectSettings, OpenConnectStatus};
+
+#[tauri::command]
+pub async fn discover_openconnect() -> CmdResult<OpenConnectDiscovery> {
+    openconnect::discover().await.stringify_err()
+}
+
+#[tauri::command]
+pub async fn install_openconnect() -> CmdResult<OpenConnectDiscovery> {
+    openconnect::install().await.stringify_err()
+}
 
 #[tauri::command]
 pub async fn get_openconnect_settings() -> CmdResult<Option<OpenConnectSettings>> {

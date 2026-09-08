@@ -970,6 +970,13 @@ interface IOpenConnectStatus {
   processId?: number
 }
 
+interface IOpenConnectDiscovery {
+  platform: string
+  executable?: string
+  vpncScript?: string
+  installerAvailable: boolean
+}
+
 interface IWebDavFile {
   filename: string
   href: string

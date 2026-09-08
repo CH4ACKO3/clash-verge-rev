@@ -49,6 +49,13 @@
       "passwordHint": "The password is stored in Windows Credential Manager and is never written to the Clash profile.",
       "passwordSaved": "A saved password already exists",
       "keepPassword": "Leave blank to keep the saved password",
+      "detected": "OpenConnect detected: {{path}}",
+      "notFound": "OpenConnect was not found on this computer.",
+      "install": "Install OpenConnect",
+      "installing": "Installing…",
+      "installSuccess": "OpenConnect installed and detected",
+      "installUnavailable": "Automatic installation is unavailable on {{platform}}. Install OpenConnect with the platform package manager, then rescan.",
+      "rescan": "Rescan",
       "fields": {
         "name": "Display name",
         "executable": "openconnect.exe path",

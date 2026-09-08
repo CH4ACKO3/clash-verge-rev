@@ -1,7 +1,12 @@
-import { SettingsRounded, VpnLockRounded } from '@mui/icons-material'
+import {
+  RefreshRounded,
+  SettingsRounded,
+  VpnLockRounded,
+} from '@mui/icons-material'
 import {
   Alert,
   Box,
+  Button,
   Divider,
   IconButton,
   Stack,
@@ -15,8 +20,10 @@ import { useTranslation } from 'react-i18next'
 import { BaseDialog } from '@/components/base'
 import { useVerge } from '@/hooks/use-verge'
 import {
+  discoverOpenConnect,
   getOpenConnectSettings,
   getOpenConnectStatus,
+  installOpenConnect,
   saveOpenConnectSettings,
   setOpenConnectConnected,
 } from '@/services/cmds'
@@ -56,14 +63,25 @@ export const OpenConnectControl = () => {
   })
   const [dialogOpen, setDialogOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  const [discovery, setDiscovery] = useState<IOpenConnectDiscovery>()
 
   const refresh = async () => {
-    const [storedSettings, currentStatus] = await Promise.all([
+    const [storedSettings, currentStatus, detected] = await Promise.all([
       getOpenConnectSettings(),
       getOpenConnectStatus(),
+      discoverOpenConnect(),
     ])
-    if (storedSettings) setSettings(storedSettings)
+    setSettings((current) => {
+      const next = storedSettings ?? current
+      return {
+        ...next,
+        executable: detected.executable ?? next.executable,
+        vpncScript: detected.vpncScript ?? next.vpncScript,
+      }
+    })
     setStatus(currentStatus)
+    setDiscovery(detected)
   }
 
   useEffect(() => {
@@ -120,6 +138,24 @@ export const OpenConnectControl = () => {
     }
   }
 
+  const install = async () => {
+    setInstalling(true)
+    try {
+      const detected = await installOpenConnect()
+      setDiscovery(detected)
+      setSettings((current) => ({
+        ...current,
+        executable: detected.executable ?? current.executable,
+        vpncScript: detected.vpncScript ?? current.vpncScript,
+      }))
+      showNotice.success('home.components.openConnect.installSuccess')
+    } catch (error) {
+      showNotice.error(error)
+    } finally {
+      setInstalling(false)
+    }
+  }
+
   const combined = status.connected && verge?.enable_tun_mode === true
 
   return (
@@ -165,7 +201,7 @@ export const OpenConnectControl = () => {
         title={t('home.components.openConnect.settingsTitle')}
         okBtn={t('shared.actions.save')}
         cancelBtn={t('shared.actions.cancel')}
-        loading={busy}
+        loading={busy || installing}
         onClose={() => setDialogOpen(false)}
         onCancel={() => setDialogOpen(false)}
         onOk={() => void save()}
@@ -173,6 +209,45 @@ export const OpenConnectControl = () => {
       >
         <Alert severity="info" sx={{ mb: 2 }}>
           {t('home.components.openConnect.passwordHint')}
+        </Alert>
+        <Alert
+          severity={discovery?.executable ? 'success' : 'warning'}
+          sx={{ mb: 2 }}
+          action={
+            <Stack direction="row" spacing={0.5}>
+              <Button
+                size="small"
+                startIcon={<RefreshRounded />}
+                disabled={installing}
+                onClick={() => void refresh().catch(showNotice.error)}
+              >
+                {t('home.components.openConnect.rescan')}
+              </Button>
+              {!discovery?.executable && discovery?.installerAvailable && (
+                <Button
+                  size="small"
+                  disabled={installing}
+                  onClick={() => void install()}
+                >
+                  {t(
+                    installing
+                      ? 'home.components.openConnect.installing'
+                      : 'home.components.openConnect.install',
+                  )}
+                </Button>
+              )}
+            </Stack>
+          }
+        >
+          {discovery?.executable
+            ? t('home.components.openConnect.detected', {
+                path: discovery.executable,
+              })
+            : discovery?.installerAvailable === false
+              ? t('home.components.openConnect.installUnavailable', {
+                  platform: discovery.platform,
+                })
+              : t('home.components.openConnect.notFound')}
         </Alert>
         <Stack spacing={1.5} sx={{ pt: 0.5 }}>
           {(

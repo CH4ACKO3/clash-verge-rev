@@ -215,6 +215,14 @@ export async function getOpenConnectSettings() {
   return invoke<IOpenConnectSettings | null>('get_openconnect_settings')
 }
 
+export async function discoverOpenConnect() {
+  return invoke<IOpenConnectDiscovery>('discover_openconnect')
+}
+
+export async function installOpenConnect() {
+  return invoke<IOpenConnectDiscovery>('install_openconnect')
+}
+
 export async function saveOpenConnectSettings(
   settings: IOpenConnectSettings,
   password?: string,

@@ -1128,7 +1128,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "sha2 0.11.0",
+"sha2 0.11.0",
  "smartstring",
  "socket2",
  "sysproxy",
