@@ -1,13 +1,13 @@
 use crate::utils::dirs;
 use anyhow::{Context as _, Result, bail};
+#[cfg(target_os = "windows")]
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::{Mapping, Value};
 #[cfg(target_os = "windows")]
 use sha2::{Digest as _, Sha256};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use std::ffi::OsStr;
-#[cfg(target_os = "windows")]
-use std::ffi::OsString;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::io::Write as _;
 use std::net::IpAddr;
@@ -604,22 +604,26 @@ pub async fn set_connected(enabled: bool) -> Result<OpenConnectStatus> {
         }
 
         let action = if enabled { "Connect" } else { "Disconnect" };
+        // `runas` 1.2.0 doubles every backslash in quoted arguments on Windows.
+        // That corrupts `-File "C:\Program Files\..."` and PowerShell exits with
+        // 0xfffd0000 before the helper starts. Encode the invocation so every
+        // argument passed through `runas` is free of spaces and backslashes.
+        let command = openconnect_helper_command(
+            &helper,
+            action,
+            &settings_path()?,
+            &pid_path()?,
+            &log_path()?,
+            CREDENTIAL_TARGET,
+        );
+        let encoded_command = encode_powershell_command(&command);
         let args = vec![
-            OsString::from("-NoProfile"),
-            OsString::from("-ExecutionPolicy"),
-            OsString::from("Bypass"),
-            OsString::from("-File"),
-            helper.into_os_string(),
-            OsString::from("-Action"),
-            OsString::from(action),
-            OsString::from("-SettingsPath"),
-            settings_path()?.into_os_string(),
-            OsString::from("-PidPath"),
-            pid_path()?.into_os_string(),
-            OsString::from("-LogPath"),
-            log_path()?.into_os_string(),
-            OsString::from("-CredentialTarget"),
-            OsString::from(CREDENTIAL_TARGET),
+            "-NoProfile".to_owned(),
+            "-NonInteractive".to_owned(),
+            "-ExecutionPolicy".to_owned(),
+            "Bypass".to_owned(),
+            "-EncodedCommand".to_owned(),
+            encoded_command,
         ];
 
         let result =
@@ -644,6 +648,40 @@ pub async fn set_connected(enabled: bool) -> Result<OpenConnectStatus> {
     {
         set_connected_unix(enabled).await
     }
+}
+
+#[cfg(target_os = "windows")]
+fn powershell_single_quote(value: impl AsRef<OsStr>) -> String {
+    format!("'{}'", value.as_ref().to_string_lossy().replace('\'', "''"))
+}
+
+#[cfg(target_os = "windows")]
+fn openconnect_helper_command(
+    helper: &Path,
+    action: &str,
+    settings: &Path,
+    pid: &Path,
+    log: &Path,
+    credential_target: &str,
+) -> String {
+    format!(
+        "& {} -Action {} -SettingsPath {} -PidPath {} -LogPath {} -CredentialTarget {}",
+        powershell_single_quote(helper),
+        powershell_single_quote(action),
+        powershell_single_quote(settings),
+        powershell_single_quote(pid),
+        powershell_single_quote(log),
+        powershell_single_quote(credential_target),
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn encode_powershell_command(command: &str) -> String {
+    let utf16_le = command
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect::<Vec<_>>();
+    BASE64_STANDARD.encode(utf16_le)
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -1096,5 +1134,29 @@ mod tests {
 
         let arguments = openconnect_arguments(&settings).expect("arguments");
         assert!(arguments.iter().all(|argument| !argument.starts_with("--interface=")));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_helper_invocation_is_encoded_without_corrupting_spaced_paths() {
+        let command = openconnect_helper_command(
+            Path::new(r"C:\Program Files\Clash Verge\resources\openconnect-helper.ps1"),
+            "Connect",
+            Path::new(r"C:\Users\Student Name\openconnect.json"),
+            Path::new(r"C:\Users\Student Name\openconnect.pid"),
+            Path::new(r"C:\Users\Student Name\openconnect.log"),
+            "ClashVergeRev/OpenConnect/default",
+        );
+
+        assert!(command.contains(r"'C:\Program Files\Clash Verge\resources\openconnect-helper.ps1'"));
+        assert!(!command.contains(r"C:\\Program Files"));
+
+        let decoded = BASE64_STANDARD
+            .decode(encode_powershell_command(&command))
+            .expect("valid base64")
+            .chunks_exact(2)
+            .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+            .collect::<Vec<_>>();
+        assert_eq!(String::from_utf16(&decoded).expect("valid utf-16"), command);
     }
 }

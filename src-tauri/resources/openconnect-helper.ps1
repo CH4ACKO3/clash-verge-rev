@@ -14,6 +14,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+trap {
+    try {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $LogPath) -Force | Out-Null
+        Add-Content -LiteralPath $LogPath -Value "[$(Get-Date -Format o)] ERROR: $($_.Exception.Message)"
+    } catch {
+        # Preserve the original failure even if diagnostic logging is unavailable.
+    }
+    [Console]::Error.WriteLine($_.Exception.Message)
+    exit 1
+}
+
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
