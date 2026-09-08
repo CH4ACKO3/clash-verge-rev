@@ -12,7 +12,7 @@ use std::ffi::OsString;
 use std::io::Write as _;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(target_os = "linux")]
 use std::process::Stdio;
 use tokio::fs;
 
@@ -759,8 +759,8 @@ fn start_openconnect(settings: &OpenConnectSettings, password: String) -> Result
         .map(|argument| shell_single_quote(argument))
         .collect::<Vec<_>>()
         .join(" ");
-    let input = shell_single_quote(&secret_path.to_string_lossy());
-    let log = shell_single_quote(&log_path()?.to_string_lossy());
+    let input = shell_single_quote(&secret_path);
+    let log = shell_single_quote(log_path()?);
     let shell =
         format!("{executable} {arguments} < {input} >> {log} 2>&1; result=$?; /bin/rm -f {input}; exit $result");
     let script = format!(
