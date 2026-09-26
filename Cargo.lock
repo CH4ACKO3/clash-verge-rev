@@ -1079,7 +1079,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "clash-verge"
-version = "2.5.6"
+version = "2.5.7-rc.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -1098,6 +1098,7 @@ dependencies = [
  "clash-verge-media-unlock",
  "clash-verge-signal",
  "clash_verge_service_ipc",
+ "core-foundation 0.9.4",
  "criterion",
  "dark-light",
  "deelevate",
@@ -1129,10 +1130,11 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
-"sha2 0.11.0",
+ "sha2 0.11.0",
  "smartstring",
  "socket2",
  "sysproxy",
+ "system-configuration",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
