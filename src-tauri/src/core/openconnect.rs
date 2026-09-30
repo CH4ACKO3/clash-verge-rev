@@ -1057,11 +1057,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn split_routing_is_prepended_without_losing_profile_values() {
+    fn split_routing_is_prepended_without_losing_profile_values() -> Result<()> {
         let config = serde_yaml_ng::from_str::<Mapping>(
             "tun:\n  route-exclude-address: [192.168.0.0/16]\ndns:\n  nameserver-policy: {}\nrules:\n  - MATCH,Proxy\n",
-        )
-        .expect("valid fixture");
+        )?;
         let settings = OpenConnectSettings {
             name: "Campus VPN".into(),
             executable: "openconnect.exe".into(),
@@ -1089,10 +1088,11 @@ mod tests {
             result["dns"]["nameserver-policy"]["+.example.edu"],
             Value::Sequence(vec![Value::from("10.0.0.53")])
         );
+        Ok(())
     }
 
     #[test]
-    fn unix_arguments_use_stdin_and_managed_pid_file() {
+    fn unix_arguments_use_stdin_and_managed_pid_file() -> Result<()> {
         let settings = OpenConnectSettings {
             name: "Campus VPN".into(),
             executable: "/usr/bin/openconnect".into(),
@@ -1108,15 +1108,16 @@ mod tests {
             dns_servers: Vec::new(),
         };
 
-        let arguments = openconnect_arguments(&settings).expect("arguments");
+        let arguments = openconnect_arguments(&settings)?;
         assert!(arguments.iter().any(|argument| argument == "--passwd-on-stdin"));
         assert!(arguments.iter().any(|argument| argument == "--background"));
         assert!(arguments.iter().any(|argument| argument.starts_with("--pid-file=")));
         assert!(arguments.iter().all(|argument| !argument.contains("password")));
+        Ok(())
     }
 
     #[test]
-    fn unix_arguments_allow_automatic_interface_selection() {
+    fn unix_arguments_allow_automatic_interface_selection() -> Result<()> {
         let settings = OpenConnectSettings {
             name: "Campus VPN".into(),
             executable: "/usr/bin/openconnect".into(),
@@ -1132,13 +1133,14 @@ mod tests {
             dns_servers: Vec::new(),
         };
 
-        let arguments = openconnect_arguments(&settings).expect("arguments");
+        let arguments = openconnect_arguments(&settings)?;
         assert!(arguments.iter().all(|argument| !argument.starts_with("--interface=")));
+        Ok(())
     }
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn windows_helper_invocation_is_encoded_without_corrupting_spaced_paths() {
+    fn windows_helper_invocation_is_encoded_without_corrupting_spaced_paths() -> Result<()> {
         let command = openconnect_helper_command(
             Path::new(r"C:\Program Files\Clash Verge\resources\openconnect-helper.ps1"),
             "Connect",
@@ -1151,12 +1153,14 @@ mod tests {
         assert!(command.contains(r"'C:\Program Files\Clash Verge\resources\openconnect-helper.ps1'"));
         assert!(!command.contains(r"C:\\Program Files"));
 
-        let decoded = BASE64_STANDARD
-            .decode(encode_powershell_command(&command))
-            .expect("valid base64")
-            .chunks_exact(2)
+        let bytes = BASE64_STANDARD.decode(encode_powershell_command(&command))?;
+        let decoded = bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
             .collect::<Vec<_>>();
-        assert_eq!(String::from_utf16(&decoded).expect("valid utf-16"), command);
+        assert_eq!(String::from_utf16(&decoded)?, command);
+        Ok(())
     }
 }
